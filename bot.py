@@ -1,19 +1,16 @@
 from dotenv import load_dotenv
-load_dotenv()  # .env faylidan muhit o'zgaruvchilarini yuklaydi
+load_dotenv() 
 
 import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 
-# Enable logging
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define conversation states
 SELECTING_ACTION, ADDING_PRODUCT, ADDING_QUANTITY, BUYING_PRODUCT, BUYING_QUANTITY = range(5)
-
-# Dictionary to store products and their quantities
 products = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -91,6 +88,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def add_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Store product name and ask for quantity."""
     product_name = update.message.text
+    if not product_name or product_name.strip() == "":
+        await update.message.reply_text("Iltimos, to'g'ri mahsulot nomini kiriting.")
+        return ADDING_PRODUCT
+        
     context.user_data['product_name'] = product_name
     await update.message.reply_text(f"{product_name} uchun miqdorni kiriting (raqam):")
     return ADDING_QUANTITY
@@ -103,7 +104,11 @@ async def add_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             await update.message.reply_text("Iltimos, musbat son kiriting.")
             return ADDING_QUANTITY
             
-        product_name = context.user_data['product_name']
+        product_name = context.user_data.get('product_name')
+        if not product_name:
+            await update.message.reply_text("Xatolik yuz berdi. Qaytadan boshlang.")
+            return ConversationHandler.END
+            
         if product_name in products:
             products[product_name] += quantity
             await update.message.reply_text(f"{product_name} miqdori {quantity} dona qo'shildi. Jami: {products[product_name]} dona")
@@ -128,8 +133,11 @@ async def buy_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """Process buying products and update inventory."""
     try:
         quantity = int(update.message.text)
-        product = context.user_data['product_to_buy']
-        
+        product = context.user_data.get('product_to_buy')
+        if not product:
+            await update.message.reply_text("Xatolik yuz berdi. Qaytadan boshlang.")
+            return ConversationHandler.END
+            
         if quantity <= 0:
             await update.message.reply_text("Iltimos, musbat son kiriting.")
             return BUYING_QUANTITY
@@ -137,6 +145,7 @@ async def buy_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         if product in products:
             if quantity > products[product]:
                 await update.message.reply_text(f"Kechirasiz, omborda faqat {products[product]} dona {product} mavjud.")
+                return BUYING_QUANTITY
             else:
                 products[product] -= quantity
                 await update.message.reply_text(f"{quantity} dona {product} sotib olindi. Qolgan miqdor: {products[product]} dona")
@@ -147,7 +156,7 @@ async def buy_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     await update.message.reply_text(f"{product} tugadi va ro'yxatdan olib tashlandi.")
         else:
             await update.message.reply_text(f"Kechirasiz, {product} mahsuloti mavjud emas.")
-        
+            
     except ValueError:
         await update.message.reply_text("Iltimos, raqam kiriting.")
         return BUYING_QUANTITY
@@ -168,16 +177,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def main() -> None:
     """Run the bot."""
-    # Get bot token from environment variable
     token = os.environ.get("TELEGRAM_TOKEN")
     if not token:
         logger.error("No TELEGRAM_TOKEN environment variable found!")
         return
 
-    # Create the Application
     application = Application.builder().token(token).build()
 
-    # Set up conversation handler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -202,7 +208,6 @@ def main() -> None:
 
     application.add_handler(conv_handler)
 
-    # Start the Bot
     application.run_polling()
 
 if __name__ == '__main__':
